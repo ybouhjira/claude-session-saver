@@ -1,0 +1,224 @@
+#!/bin/bash
+# Claude Session Saver - Save your work before closing Claude Code
+# Usage: save-session [--full] [--quick]
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Config
+SESSION_LOG="$HOME/.claude/session-saves/$(date +%Y-%m-%d_%H-%M-%S).md"
+PROJECTS_DIR="$HOME/Projects"
+
+# Flags
+FULL_MODE=false
+QUICK_MODE=false
+
+for arg in "$@"; do
+    case $arg in
+        --full) FULL_MODE=true ;;
+        --quick) QUICK_MODE=true ;;
+    esac
+done
+
+echo -e "${PURPLE}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${PURPLE}║      🔄 Claude Session Saver                         ║${NC}"
+echo -e "${PURPLE}╚══════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Create session log directory
+mkdir -p "$(dirname "$SESSION_LOG")"
+
+# Start session log
+cat > "$SESSION_LOG" << EOF
+# Session Save - $(date '+%Y-%m-%d %H:%M:%S')
+
+## Projects Checked
+
+EOF
+
+# Track status
+ALL_SAVED=true
+REPOS_CREATED=0
+COMMITS_MADE=0
+ISSUES_CREATED=0
+
+# Function to check a directory
+check_project() {
+    local dir="$1"
+    local name=$(basename "$dir")
+
+    # Skip if not a git repo and no significant files
+    if [[ ! -d "$dir/.git" ]]; then
+        # Check if it has code files worth saving
+        local has_code=$(find "$dir" -maxdepth 2 -type f \( -name "*.swift" -o -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.java" \) 2>/dev/null | head -1)
+        if [[ -z "$has_code" ]]; then
+            return
+        fi
+
+        echo -e "${YELLOW}📁 $name - No git repo${NC}"
+
+        if [[ "$QUICK_MODE" != "true" ]]; then
+            echo -e "   Creating git repo and GitHub remote..."
+            cd "$dir"
+            git init -q
+            git add -A
+            git commit -q -m "Initial commit - session save $(date +%Y-%m-%d)"
+
+            # Create GitHub repo
+            if gh repo create "$name" --private --source . --push -y &>/dev/null; then
+                echo -e "   ${GREEN}✓ Created private repo: $name${NC}"
+                ((REPOS_CREATED++))
+                echo "- **$name**: Created new repo" >> "$SESSION_LOG"
+            else
+                echo -e "   ${RED}✗ Failed to create repo${NC}"
+                ALL_SAVED=false
+            fi
+        fi
+        return
+    fi
+
+    cd "$dir"
+
+    # Check for uncommitted changes
+    local status=$(git status --porcelain 2>/dev/null)
+    local remote=$(git remote get-url origin 2>/dev/null || echo "")
+    local branch=$(git branch --show-current 2>/dev/null || echo "main")
+
+    if [[ -z "$status" && -n "$remote" ]]; then
+        # Check if pushed
+        local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
+        if [[ "$ahead" == "0" ]]; then
+            echo -e "${GREEN}✓ $name${NC} - All saved"
+            echo "- **$name**: ✅ All saved (branch: $branch)" >> "$SESSION_LOG"
+            return
+        fi
+    fi
+
+    echo -e "${YELLOW}📁 $name${NC}"
+
+    # No remote? Create GitHub repo
+    if [[ -z "$remote" ]]; then
+        echo -e "   ${CYAN}No GitHub remote - creating...${NC}"
+        if gh repo create "$name" --private --source . --push -y &>/dev/null; then
+            echo -e "   ${GREEN}✓ Created private repo${NC}"
+            ((REPOS_CREATED++))
+            remote=$(git remote get-url origin 2>/dev/null)
+        else
+            echo -e "   ${RED}✗ Failed to create repo${NC}"
+            ALL_SAVED=false
+            echo "- **$name**: ❌ Failed to create repo" >> "$SESSION_LOG"
+            return
+        fi
+    fi
+
+    # Uncommitted changes?
+    if [[ -n "$status" ]]; then
+        local changed=$(echo "$status" | wc -l | tr -d ' ')
+        echo -e "   ${YELLOW}$changed uncommitted changes${NC}"
+
+        # Create save branch
+        local save_branch="session-save/$(date +%Y-%m-%d-%H%M)"
+        git checkout -b "$save_branch" 2>/dev/null || git checkout "$save_branch" 2>/dev/null || true
+
+        git add -A
+        git commit -q -m "Session save $(date '+%Y-%m-%d %H:%M')
+
+Auto-saved by claude-session-saver
+Changes: $changed files
+
+## Status at save time:
+$(git status --short)"
+
+        ((COMMITS_MADE++))
+        echo -e "   ${GREEN}✓ Committed to $save_branch${NC}"
+    fi
+
+    # Push
+    if git push -u origin HEAD &>/dev/null; then
+        echo -e "   ${GREEN}✓ Pushed to GitHub${NC}"
+        echo "- **$name**: ✅ Saved to branch \`$save_branch\` ([repo]($remote))" >> "$SESSION_LOG"
+    else
+        echo -e "   ${RED}✗ Failed to push${NC}"
+        ALL_SAVED=false
+        echo "- **$name**: ❌ Failed to push" >> "$SESSION_LOG"
+    fi
+
+    # Go back to original branch
+    git checkout "$branch" 2>/dev/null || true
+}
+
+# Check current directory first
+echo -e "${BLUE}Checking current directory...${NC}"
+if [[ -d ".git" || -f "Package.swift" || -f "package.json" || -f "Cargo.toml" ]]; then
+    check_project "$(pwd)"
+fi
+
+# Check recent projects
+echo ""
+echo -e "${BLUE}Checking recent projects...${NC}"
+
+# Find recently modified project directories
+for dir in "$PROJECTS_DIR"/*; do
+    if [[ -d "$dir" ]]; then
+        # Check if modified in last 24 hours
+        if find "$dir" -maxdepth 2 -type f -mtime -1 2>/dev/null | head -1 | grep -q .; then
+            check_project "$dir"
+        fi
+    fi
+done
+
+# Also check Desktop for any project folders
+for dir in ~/Desktop/*; do
+    if [[ -d "$dir" && -d "$dir/.git" ]]; then
+        check_project "$dir"
+    fi
+done
+
+echo ""
+
+# Summary
+echo -e "${PURPLE}══════════════════════════════════════════════════════${NC}"
+if [[ "$ALL_SAVED" == "true" ]]; then
+    echo -e "${GREEN}✅ All work saved! You can close Claude Code.${NC}"
+else
+    echo -e "${YELLOW}⚠️  Some projects need attention (see above)${NC}"
+fi
+
+echo ""
+echo -e "📊 Summary:"
+echo -e "   Repos created: $REPOS_CREATED"
+echo -e "   Commits made:  $COMMITS_MADE"
+echo -e "   Session log:   $SESSION_LOG"
+
+# Add summary to log
+cat >> "$SESSION_LOG" << EOF
+
+## Summary
+- Repos created: $REPOS_CREATED
+- Commits made: $COMMITS_MADE
+- All saved: $ALL_SAVED
+
+## To Resume
+\`\`\`bash
+# View this session
+cat "$SESSION_LOG"
+
+# List all session saves
+ls -la ~/.claude/session-saves/
+\`\`\`
+EOF
+
+echo ""
+if [[ "$ALL_SAVED" == "true" ]]; then
+    echo -e "${GREEN}👋 Safe to close!${NC}"
+else
+    echo -e "${YELLOW}Review the issues above before closing.${NC}"
+fi
