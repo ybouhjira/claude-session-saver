@@ -1,6 +1,7 @@
 #!/bin/bash
 # Claude Session Saver - Save your work before closing Claude Code
 # Usage: save-session [--full] [--quick]
+# shellcheck disable=SC2034  # Unused variables are for future features
 
 set -e
 
@@ -52,12 +53,14 @@ ISSUES_CREATED=0
 # Function to check a directory
 check_project() {
     local dir="$1"
-    local name=$(basename "$dir")
+    local name
+    name=$(basename "$dir")
 
     # Skip if not a git repo and no significant files
     if [[ ! -d "$dir/.git" ]]; then
         # Check if it has code files worth saving
-        local has_code=$(find "$dir" -maxdepth 2 -type f \( -name "*.swift" -o -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.java" \) 2>/dev/null | head -1)
+        local has_code
+        has_code=$(find "$dir" -maxdepth 2 -type f \( -name "*.swift" -o -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.java" \) 2>/dev/null | head -1)
         if [[ -z "$has_code" ]]; then
             return
         fi
@@ -87,13 +90,18 @@ check_project() {
     cd "$dir"
 
     # Check for uncommitted changes
-    local status=$(git status --porcelain 2>/dev/null)
-    local remote=$(git remote get-url origin 2>/dev/null || echo "")
-    local branch=$(git branch --show-current 2>/dev/null || echo "main")
+    local status
+    status=$(git status --porcelain 2>/dev/null)
+    local remote
+    remote=$(git remote get-url origin 2>/dev/null || echo "")
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "main")
 
     if [[ -z "$status" && -n "$remote" ]]; then
         # Check if pushed
-        local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
+        local ahead
+        # shellcheck disable=SC1083
+        ahead=$(git rev-list --count '@{u}'..HEAD 2>/dev/null || echo "0")
         if [[ "$ahead" == "0" ]]; then
             echo -e "${GREEN}✓ $name${NC} - All saved"
             echo "- **$name**: ✅ All saved (branch: $branch)" >> "$SESSION_LOG"
@@ -120,11 +128,13 @@ check_project() {
 
     # Uncommitted changes?
     if [[ -n "$status" ]]; then
-        local changed=$(echo "$status" | wc -l | tr -d ' ')
+        local changed
+        changed=$(echo "$status" | wc -l | tr -d ' ')
         echo -e "   ${YELLOW}$changed uncommitted changes${NC}"
 
         # Create save branch
-        local save_branch="session-save/$(date +%Y-%m-%d-%H%M)"
+        local save_branch
+        save_branch="session-save/$(date +%Y-%m-%d-%H%M)"
         git checkout -b "$save_branch" 2>/dev/null || git checkout "$save_branch" 2>/dev/null || true
 
         git add -A
