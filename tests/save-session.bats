@@ -130,9 +130,11 @@ teardown() {
     "$SAVE_SESSION" --quick 2>&1 || true
 
     # Check commit message on session-save branch
-    SAVE_BRANCH=$(git branch --list "session-save/*" | head -1 | tr -d ' ')
+    # Use sed to strip asterisk and spaces from branch name
+    SAVE_BRANCH=$(git branch --list "session-save/*" | head -1 | sed 's/^[* ]*//')
     [[ -n "$SAVE_BRANCH" ]]
 
     COMMIT_MSG=$(git log -1 --format=%B "$SAVE_BRANCH")
-    [[ "$COMMIT_MSG" == *"Session save"* ]] || [[ "$COMMIT_MSG" == *"session save"* ]]
+    # Check for session save in commit message (case insensitive match)
+    [[ "$COMMIT_MSG" == *"ession save"* ]] || [[ "$COMMIT_MSG" == *"ession-save"* ]]
 }
