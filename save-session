@@ -15,7 +15,6 @@ NC='\033[0m' # No Color
 
 # Config
 SESSION_LOG="$HOME/.claude/session-saves/$(date +%Y-%m-%d_%H-%M-%S).md"
-PROJECTS_DIR="$HOME/Projects"
 
 # Flags
 FULL_MODE=false
@@ -155,32 +154,9 @@ $(git status --short)"
     git checkout "$branch" 2>/dev/null || true
 }
 
-# Check current directory first
+# Check current directory (where Claude Code is running)
 echo -e "${BLUE}Checking current directory...${NC}"
-if [[ -d ".git" || -f "Package.swift" || -f "package.json" || -f "Cargo.toml" ]]; then
-    check_project "$(pwd)"
-fi
-
-# Check recent projects
-echo ""
-echo -e "${BLUE}Checking recent projects...${NC}"
-
-# Find recently modified project directories
-for dir in "$PROJECTS_DIR"/*; do
-    if [[ -d "$dir" ]]; then
-        # Check if modified in last 24 hours
-        if find "$dir" -maxdepth 2 -type f -mtime -1 2>/dev/null | head -1 | grep -q .; then
-            check_project "$dir"
-        fi
-    fi
-done
-
-# Also check Desktop for any project folders
-for dir in ~/Desktop/*; do
-    if [[ -d "$dir" && -d "$dir/.git" ]]; then
-        check_project "$dir"
-    fi
-done
+check_project "$(pwd)"
 
 echo ""
 
