@@ -4,6 +4,8 @@
 
 **Never lose your Claude Code work again.** Save all session work to GitHub before closing your laptop.
 
+![Demo](demo.gif)
+
 > 💡 Built for Claude Code users who want peace of mind knowing their work is safely backed up.
 
 ## Quick Install
