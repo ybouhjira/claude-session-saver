@@ -237,7 +237,7 @@ suggest_before_close() {
 
     # Check for local branches without remote
     local local_only
-    local_only=$(git branch -vv 2>/dev/null | grep -v '\[' | grep -cv '^\*')
+    local_only=$(git branch -vv 2>/dev/null | grep -v '\[' | grep -cv '^\*' || echo "0")
     if [[ "$local_only" -gt 0 ]]; then
         suggestions+=("🌿 $local_only local branch(es) not pushed to remote")
     fi
