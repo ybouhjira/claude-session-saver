@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Session Saver - Save your work before closing Claude Code
-# Usage: save-session [--full] [--quick]
+# Usage: save-session [--quick] [--away] [--suggest]
 # shellcheck disable=SC2034  # Unused variables are for future features
 
 set -e
@@ -20,11 +20,15 @@ SESSION_LOG="$HOME/.claude/session-saves/$(date +%Y-%m-%d_%H-%M-%S).md"
 # Flags
 FULL_MODE=false
 QUICK_MODE=false
+AWAY_MODE=false
+SUGGEST_MODE=false
 
 for arg in "$@"; do
     case $arg in
         --full) FULL_MODE=true ;;
         --quick) QUICK_MODE=true ;;
+        --away) AWAY_MODE=true ;;
+        --suggest) SUGGEST_MODE=true ;;
     esac
 done
 
@@ -201,6 +205,187 @@ cat "$SESSION_LOG"
 ls -la ~/.claude/session-saves/
 \`\`\`
 EOF
+
+# ============================================================================
+# SUGGESTIONS - Things to consider before closing
+# ============================================================================
+
+suggest_before_close() {
+    local suggestions=()
+    local dir="$1"
+
+    cd "$dir" 2>/dev/null || return
+
+    if [[ ! -d ".git" ]]; then
+        return
+    fi
+
+    # Check for stashed changes
+    local stash_count
+    stash_count=$(git stash list 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$stash_count" -gt 0 ]]; then
+        suggestions+=("📦 You have $stash_count stash(es) - run 'git stash list' to review")
+    fi
+
+    # Check for unpushed commits
+    local unpushed
+    # shellcheck disable=SC1083
+    unpushed=$(git rev-list --count '@{u}'..HEAD 2>/dev/null || echo "0")
+    if [[ "$unpushed" -gt 0 ]]; then
+        suggestions+=("⬆️  $unpushed unpushed commit(s) on current branch")
+    fi
+
+    # Check for local branches without remote
+    local local_only
+    local_only=$(git branch -vv 2>/dev/null | grep -v '\[' | grep -cv '^\*')
+    if [[ "$local_only" -gt 0 ]]; then
+        suggestions+=("🌿 $local_only local branch(es) not pushed to remote")
+    fi
+
+    # Check for open PRs (if gh is available)
+    if command -v gh &>/dev/null; then
+        local open_prs
+        open_prs=$(gh pr list --author "@me" --state open 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$open_prs" -gt 0 ]]; then
+            suggestions+=("🔄 You have $open_prs open PR(s) - run 'gh pr list' to review")
+        fi
+    fi
+
+    # Check for TODO/FIXME comments added recently
+    local todos
+    todos=$(git diff HEAD~5 --unified=0 2>/dev/null | grep -c "TODO\|FIXME\|XXX\|HACK" || echo "0")
+    if [[ "$todos" -gt 0 ]]; then
+        suggestions+=("📝 ~$todos TODO/FIXME comments in recent commits")
+    fi
+
+    # Print suggestions
+    if [[ ${#suggestions[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "${CYAN}💡 Before you close:${NC}"
+        for suggestion in "${suggestions[@]}"; do
+            echo -e "   $suggestion"
+        done
+    fi
+}
+
+# ============================================================================
+# AWAY MODE - Background tasks that can run while you're away
+# ============================================================================
+
+suggest_away_tasks() {
+    local dir="$1"
+    local tasks=()
+
+    cd "$dir" 2>/dev/null || return
+
+    echo ""
+    echo -e "${PURPLE}══════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}☕ Away Mode - Tasks that can run while you're gone:${NC}"
+    echo ""
+
+    # Detect project type and suggest relevant tasks
+    if [[ -f "package.json" ]]; then
+        # Node.js project
+        if grep -q '"test"' package.json 2>/dev/null; then
+            tasks+=("🧪 Run tests: npm test")
+        fi
+        if grep -q '"lint"' package.json 2>/dev/null; then
+            tasks+=("✨ Run linter: npm run lint")
+        fi
+        if grep -q '"build"' package.json 2>/dev/null; then
+            tasks+=("🔨 Build project: npm run build")
+        fi
+        tasks+=("📦 Update dependencies: npm update")
+        tasks+=("🔒 Security audit: npm audit")
+    fi
+
+    if [[ -f "requirements.txt" ]] || [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]]; then
+        # Python project
+        if [[ -f "pytest.ini" ]] || [[ -d "tests" ]]; then
+            tasks+=("🧪 Run tests: pytest")
+        fi
+        tasks+=("✨ Run linter: ruff check . --fix")
+        tasks+=("🔒 Security audit: pip-audit")
+    fi
+
+    if [[ -f "Cargo.toml" ]]; then
+        # Rust project
+        tasks+=("🧪 Run tests: cargo test")
+        tasks+=("✨ Run linter: cargo clippy")
+        tasks+=("🔨 Build release: cargo build --release")
+        tasks+=("🔒 Security audit: cargo audit")
+    fi
+
+    if [[ -f "go.mod" ]]; then
+        # Go project
+        tasks+=("🧪 Run tests: go test ./...")
+        tasks+=("✨ Run linter: golangci-lint run")
+        tasks+=("🔨 Build: go build ./...")
+    fi
+
+    # Git-related tasks (universal)
+    if [[ -d ".git" ]]; then
+        local current_branch
+        current_branch=$(git branch --show-current 2>/dev/null)
+
+        # Check if there's a PR
+        if command -v gh &>/dev/null; then
+            local pr_number
+            pr_number=$(gh pr view --json number -q '.number' 2>/dev/null || echo "")
+            if [[ -n "$pr_number" ]]; then
+                tasks+=("👀 Monitor PR #$pr_number: gh pr checks")
+            else
+                tasks+=("🚀 Create PR: gh pr create --fill")
+            fi
+        fi
+
+        # Suggest rebasing if behind main
+        local behind
+        behind=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "0")
+        if [[ "$behind" -gt 0 ]]; then
+            tasks+=("🔄 Rebase on main ($behind commits behind): git rebase origin/main")
+        fi
+
+        tasks+=("📊 Fetch latest: git fetch --all --prune")
+    fi
+
+    # GitHub Actions (if present)
+    if [[ -d ".github/workflows" ]]; then
+        tasks+=("🤖 View CI status: gh run list --limit 5")
+    fi
+
+    # Docker (if present)
+    if [[ -f "Dockerfile" ]]; then
+        tasks+=("🐳 Build Docker image: docker build -t \$(basename \$PWD) .")
+    fi
+
+    # Print tasks
+    if [[ ${#tasks[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}Suggested tasks for this project:${NC}"
+        echo ""
+        for i in "${!tasks[@]}"; do
+            echo -e "   $((i+1)). ${tasks[$i]}"
+        done
+        echo ""
+        echo -e "${BLUE}💡 Tip: Push your changes, then these can run in CI while you're away${NC}"
+    else
+        echo -e "   No specific tasks detected for this project type"
+    fi
+}
+
+# ============================================================================
+# MAIN FLOW CONTINUES
+# ============================================================================
+
+# Show suggestions if not in quick mode
+if [[ "$QUICK_MODE" != "true" ]]; then
+    suggest_before_close "$(pwd)"
+fi
+
+# Show away mode tasks
+if [[ "$AWAY_MODE" == "true" ]] || [[ "$SUGGEST_MODE" == "true" ]]; then
+    suggest_away_tasks "$(pwd)"
+fi
 
 echo ""
 if [[ "$ALL_SAVED" == "true" ]]; then
