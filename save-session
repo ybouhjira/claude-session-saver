@@ -1,6 +1,9 @@
 #!/bin/bash
 # Claude Session Saver - Save your work before closing Claude Code
-# Usage: save-session [--quick] [--away] [--suggest]
+# Usage: save-session [--quick]
+#
+# By default: saves work + shows suggestions + shows away-mode tasks
+# --quick: fast save only, no suggestions
 # shellcheck disable=SC2034  # Unused variables are for future features
 
 set -e
@@ -235,9 +238,10 @@ suggest_before_close() {
         suggestions+=("⬆️  $unpushed unpushed commit(s) on current branch")
     fi
 
-    # Check for local branches without remote
+    # Check for local branches without remote (using wc -l to avoid grep -c exit code issues)
     local local_only
-    local_only=$(git branch -vv 2>/dev/null | grep -v '\[' | grep -cv '^\*')
+    # shellcheck disable=SC2126
+    local_only=$(git branch -vv 2>/dev/null | grep -v '\[' | grep -v '^\*' | wc -l | tr -d ' ')
     if [[ "$local_only" -gt 0 ]]; then
         suggestions+=("🌿 $local_only local branch(es) not pushed to remote")
     fi
@@ -379,8 +383,8 @@ if [[ "$QUICK_MODE" != "true" ]]; then
     suggest_before_close "$(pwd)"
 fi
 
-# Show away mode tasks
-if [[ "$AWAY_MODE" == "true" ]] || [[ "$SUGGEST_MODE" == "true" ]]; then
+# Show away mode tasks (default unless --quick)
+if [[ "$QUICK_MODE" != "true" ]]; then
     suggest_away_tasks "$(pwd)"
 fi
 
