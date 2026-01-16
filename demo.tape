@@ -3,16 +3,19 @@
 Output demo.gif
 
 Set Shell "bash"
-Set FontSize 16
+Set FontSize 14
 Set Width 900
-Set Height 650
+Set Height 700
 Set Theme "Catppuccin Mocha"
-Set Padding 20
-Set TypingSpeed 50ms
+Set Padding 15
+Set TypingSpeed 80ms
 
-Sleep 500ms
+Env PATH "/Users/youssef_bouhjira/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+Sleep 300ms
 
 Type "save-session"
-Sleep 500ms
+Sleep 400ms
 Enter
-Sleep 6s
+
+Sleep 8s
