@@ -360,6 +360,21 @@ suggest_away_tasks() {
         tasks+=("🐳 Build Docker image: docker build -t \$(basename \$PWD) .")
     fi
 
+    # Read custom project tasks from claude-session-save-logic.md
+    local custom_file="claude-session-save-logic.md"
+    if [[ -f "$custom_file" ]]; then
+        echo -e "${CYAN}📋 Custom project tasks (from $custom_file):${NC}"
+        echo ""
+        # Extract lines starting with "- " as tasks
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^-[[:space:]] ]]; then
+                task="${line#- }"
+                echo -e "   • $task"
+            fi
+        done < "$custom_file"
+        echo ""
+    fi
+
     # Print tasks
     if [[ ${#tasks[@]} -gt 0 ]]; then
         echo -e "${YELLOW}Suggested tasks for this project:${NC}"
